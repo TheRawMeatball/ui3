@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "ui3-core",
+    "ui3-web-backend",
+    "web-example",
+]

@@ -186,6 +186,14 @@ impl<B: UiBackend> Default for WidgetNodeGroup<B> {
     }
 }
 
+impl<B: UiBackend> WidgetNodeGroup<B> {
+    pub fn single(node: WidgetNode<B>) -> Self {
+        let mut this = Self::default();
+        this.push(node);
+        this
+    }
+}
+
 struct MountedWidgetNodeGroup<B: UiBackend> {
     render_order: Vec<IntOrString>,
     ordered: Vec<MountedWidgetNode<B>>,

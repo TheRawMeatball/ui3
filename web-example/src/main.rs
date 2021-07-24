@@ -26,31 +26,16 @@ fn main() {
 }
 
 fn app(store: Store<i32>) -> Wn {
-    console_log!("running app, store: {}", *store);
     let mut group = WidgetNodeGroup::default();
     let id = store.id();
     group.push(textw.w((format!("hello! number: {}", *store),)));
     group.push(buttonw.w((
-        Rc::new(move |ctx| {
-            console_log!("increment button pressed!");
-            *id.access(ctx) += 1;
-        }),
-        Rc::new(|| {
-            let mut group = WidgetNodeGroup::default();
-            group.push(textw.w(("Increment".into(),)));
-            group
-        }),
+        Rc::new(move |ctx| *id.access(ctx) += 1),
+        Rc::new(|| WidgetNodeGroup::single(textw.w(("Incecrement".into(),)))),
     )));
     group.push(buttonw.w((
-        Rc::new(move |ctx| {
-            console_log!("decrement button pressed!");
-            *id.access(ctx) -= 1;
-        }),
-        Rc::new(|| {
-            let mut group = WidgetNodeGroup::default();
-            group.push(textw.w(("Decrement".into(),)));
-            group
-        }),
+        Rc::new(move |ctx| *id.access(ctx) -= 1),
+        Rc::new(|| WidgetNodeGroup::single(textw.w(("Decrement".into(),)))),
     )));
     Wn::Group(group)
 }

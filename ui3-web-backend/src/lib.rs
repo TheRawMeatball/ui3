@@ -168,7 +168,6 @@ pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<dyn Fn() -> Wng
                         };
                         (f)(&mut ctx);
                         runtime.app.update(&mut runtime.world);
-                        console_log!("applying to real dom!");
                         runtime.updater.update(direct_render(&runtime.app))
                     })
                     .unwrap();

@@ -7,7 +7,7 @@ use ui3_core::{
     WidgetParam,
 };
 use virtual_dom_rs::{
-    Closure, DomUpdater, DynClosure, Events, HtmlElement, VElement, VText, VirtualNode,
+    Closure, DomUpdater, DynClosure, Event, Events, HtmlElement, VElement, VText, VirtualNode,
 };
 
 use bevy_ecs::{
@@ -15,7 +15,7 @@ use bevy_ecs::{
     world::World,
 };
 
-use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 #[wasm_bindgen]
 extern "C" {
@@ -166,18 +166,7 @@ pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<dyn Fn() -> Wng
         {
             let mut map: HashMap<String, DynClosure> = Default::default();
             let closure = Closure::wrap(Box::new(move || {
-                RUNTIME
-                    .try_with(|val| {
-                        let mut rt = val.borrow_mut();
-                        let runtime = rt.as_mut().unwrap();
-                        let mut ctx = Ctx {
-                            backend_data: &mut runtime.world,
-                        };
-                        (f)(&mut ctx);
-                        runtime.app.update(&mut runtime.world);
-                        runtime.updater.update(direct_render(&runtime.app))
-                    })
-                    .unwrap();
+                access_ctx(&*f);
             }) as Box<dyn Fn()>);
             map.insert("onclick".to_owned(), Rc::new(closure));
             map
@@ -186,10 +175,57 @@ pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<dyn Fn() -> Wng
     ))
 }
 
+pub fn textboxw(store: &StoreId<String>) -> Wn {
+    let store = store.clone();
+    htmlw.w((
+        "input".into(),
+        {
+            let mut map: HashMap<String, String> = Default::default();
+            map.insert("type".into(), "text".into());
+            map
+        },
+        {
+            let mut map: HashMap<String, DynClosure> = Default::default();
+            let closure = Closure::wrap(Box::new(move |e: Event| {
+                access_ctx(|ctx| {
+                    let new_value: String =
+                        web_sys::HtmlInputElement::from(JsValue::from(e.target().unwrap())).value();
+                    *store.access(ctx) = new_value;
+                })
+            }) as Box<dyn Fn(Event)>);
+            map.insert("oninput".to_owned(), Rc::new(closure));
+            map
+        },
+        Rc::new(|| Default::default()),
+    ))
+}
+
+fn access_ctx(f: impl FnOnce(&mut Ctx)) {
+    RUNTIME
+        .try_with(|val| {
+            let mut rt = val.borrow_mut();
+            let runtime = rt.as_mut().unwrap();
+            let mut ctx = Ctx {
+                backend_data: &mut runtime.world,
+            };
+            f(&mut ctx);
+            runtime.tick();
+        })
+        .unwrap();
+}
+
 struct Runtime {
     world: World,
     updater: DomUpdater,
     app: UiApp,
+}
+
+impl Runtime {
+    fn tick(&mut self) {
+        self.app.update(&mut self.world);
+        self.updater.update(direct_render(&self.app));
+        self.world.increment_change_tick();
+    }
 }
 
 thread_local! {
@@ -208,6 +244,7 @@ pub fn enter_runtime(root: Wn) {
     let root = direct_render(&app);
 
     let updater = virtual_dom_rs::DomUpdater::new_append_to_mount(root, &element);
+    world.increment_change_tick();
 
     RUNTIME
         .try_with(|val| {

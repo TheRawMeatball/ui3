@@ -436,19 +436,26 @@ pub trait WidgetParam<B: UiBackend>: 'static {
 }
 
 macro_rules! impl_functions {
-    ($($idents: ident),*) => {
-        impl_functions!([], [$($idents),*]);
+    () => {
+        impl_functions!(@single_row);
     };
-    ([$($head: ident),*], []) => {
+    ($transfer: ident $(, $tail: ident)*) => {
+        impl_functions!(@single_row $transfer $(, $tail)*);
+        impl_functions!($($tail),*);
+    };
+    (@single_row $($idents: ident),*) => {
+        impl_functions!(@private [], [$($idents),*]);
+    };
+    (@private [$($head: ident),*], []) => {
         impl_functions!(@finalize [$($head),*], []);
     };
-    ([$($head: ident),*], [$last: ident]) => {
+    (@private [$($head: ident),*], [$last: ident]) => {
         impl_functions!(@finalize [$($head),*], [$last]);
-        impl_functions!([$($head,)* $last], []);
+        impl_functions!(@private [$($head,)* $last], []);
     };
-    ([$($head: ident),*], [$transfer: ident, $($tail: ident),*]) => {
+    (@private [$($head: ident),*], [$transfer: ident, $($tail: ident),*]) => {
         impl_functions!(@finalize [$($head),*], [$($tail,)* $transfer]);
-        impl_functions!([$($head,)* $transfer], [$($tail),*]);
+        impl_functions!(@private [$($head,)* $transfer], [$($tail),*]);
     };
     (@finalize [$($props: ident),*], [$($params: ident),*]) => {
         #[allow(unused)]
@@ -490,16 +497,6 @@ macro_rules! impl_functions {
     };
 }
 
-impl_functions!();
-impl_functions!(A);
-impl_functions!(A, B);
-impl_functions!(A, B, C);
-impl_functions!(A, B, C, D);
-impl_functions!(A, B, C, D, E);
-impl_functions!(A, B, C, D, E, F);
-impl_functions!(A, B, C, D, E, F, G);
-impl_functions!(A, B, C, D, E, F, G, H);
-impl_functions!(A, B, C, D, E, F, G, H, I);
-impl_functions!(A, B, C, D, E, F, G, H, I, J);
-impl_functions!(A, B, C, D, E, F, G, H, I, J, K);
-impl_functions!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_functions!(
+    _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20
+);

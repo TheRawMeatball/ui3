@@ -1,9 +1,7 @@
 use std::rc::Rc;
 
-use bevy_ecs::prelude::World;
-use ui3_core::{RenderNode, WidgetFunc, WidgetNodeGroup};
-use ui3_web_backend::{buttonw, textw, Ctx, Store, UiApp, WebBackend, Wn};
-use virtual_dom_rs::{HtmlElement, VElement, VText, VirtualNode};
+use ui3_core::{WidgetFunc, WidgetNodeGroup};
+use ui3_web_backend::{buttonw, textw, Store, Wn};
 
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -15,6 +13,7 @@ extern "C" {
     fn log(s: &str);
 }
 
+#[allow(unused_macros)]
 macro_rules! console_log {
     // Note that this is using the `log` function imported above during
     // `bare_bones`

@@ -25,6 +25,7 @@ extern "C" {
     fn log(s: &str);
 }
 
+#[allow(unused_macros)]
 macro_rules! console_log {
     // Note that this is using the `log` function imported above during
     // `bare_bones`
@@ -133,6 +134,7 @@ impl<T: Default + Send + Sync + 'static> WidgetParam<WebBackend> for Store<'stat
         init_data: &mut Self::InitData,
     ) -> Self::Item<'a> {
         let id = init_data.0;
+        init_data.1 = ctx.backend_data.read_change_tick();
         Store {
             val: &ctx.backend_data.get::<WPWrapper<T>>(id).unwrap().0,
             id,
@@ -140,7 +142,12 @@ impl<T: Default + Send + Sync + 'static> WidgetParam<WebBackend> for Store<'stat
     }
 
     fn needs_recalc(ctx: &Context<WebBackend>, init_data: &Self::InitData) -> bool {
-        true // todo!()
+        ctx.backend_data
+            .get_entity(init_data.0)
+            .unwrap()
+            .get_change_ticks::<WPWrapper<T>>()
+            .unwrap()
+            .is_changed(init_data.1, ctx.backend_data.read_change_tick())
     }
 }
 

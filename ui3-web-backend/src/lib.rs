@@ -3,8 +3,7 @@
 use std::{borrow::Cow, cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 
 use ui3_core::{
-    Application, Context, RenderNode, UiBackend, WidgetFunc, WidgetNode, WidgetNodeGroup,
-    WidgetParam,
+    Application, Context, RenderNode, UiBackend, WidgetNode, WidgetNodeGroup, WidgetParam,
 };
 use virtual_dom_rs::{
     Closure, DomUpdater, DynClosure, Event, Events, HtmlElement, VElement, VText, VirtualNode,
@@ -60,13 +59,18 @@ pub fn htmlw(
     events: &HashMap<&'static str, DynClosure>,
     children: &Rc<Wn>,
 ) -> Wn {
+    build_html(&tag, attrs.clone(), events.clone(), children.clone())
+}
+
+fn build_html(
+    tag: &'static str,
+    attrs: HashMap<&'static str, Cow<'static, str>>,
+    events: HashMap<&'static str, DynClosure>,
+    children: Rc<Wn>,
+) -> Wn {
     Wn::Unit {
-        unit: Unit::Element {
-            tag: &tag,
-            attrs: attrs.clone(),
-            events: events.clone(),
-        },
-        children: children.clone(),
+        unit: Unit::Element { tag, attrs, events },
+        children,
     }
 }
 
@@ -169,8 +173,8 @@ pub fn textw(text: &String) -> Wn {
 
 pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<Wn>) -> Wn {
     let f = f.clone();
-    htmlw.w((
-        "button".into(),
+    build_html(
+        "button",
         Default::default(),
         {
             let mut map: HashMap<&'static str, DynClosure> = Default::default();
@@ -181,13 +185,13 @@ pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<Wn>) -> Wn {
             map
         },
         children.clone(),
-    ))
+    )
 }
 
 pub fn textboxw(store: &StoreId<String>) -> Wn {
     let store = store.clone();
-    htmlw.w((
-        "input".into(),
+    build_html(
+        "input",
         {
             let mut map: HashMap<&'static str, Cow<'static, str>> = Default::default();
             map.insert("type", "text".into());
@@ -206,7 +210,7 @@ pub fn textboxw(store: &StoreId<String>) -> Wn {
             map
         },
         Rc::new(Wn::None),
-    ))
+    )
 }
 
 fn access_ctx(f: impl FnOnce(&mut Ctx)) {

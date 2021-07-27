@@ -1,6 +1,6 @@
 #![feature(generic_associated_types)]
 
-use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 
 use ui3_core::{
     Application, Context, RenderNode, UiBackend, WidgetFunc, WidgetNode, WidgetNodeGroup,
@@ -35,8 +35,18 @@ macro_rules! console_log {
 pub struct WebBackend {}
 
 impl UiBackend for WebBackend {
-    type Unit = VirtualNode;
+    type Unit = Unit;
     type RunCtx = World;
+}
+
+#[derive(Clone)]
+pub enum Unit {
+    Element {
+        tag: &'static str,
+        attrs: HashMap<&'static str, Cow<'static, str>>,
+        events: HashMap<&'static str, DynClosure>,
+    },
+    Text(String),
 }
 
 pub type Ctx<'a> = Context<'a, WebBackend>;
@@ -45,19 +55,18 @@ pub type Wng = WidgetNodeGroup<WebBackend>;
 pub type UiApp = Application<WebBackend>;
 
 pub fn htmlw(
-    tag: &String,
-    attrs: &HashMap<String, String>,
-    events: &HashMap<String, DynClosure>,
-    children: &Rc<dyn Fn() -> Wng>,
+    tag: &&'static str,
+    attrs: &HashMap<&'static str, Cow<'static, str>>,
+    events: &HashMap<&'static str, DynClosure>,
+    children: &Rc<Wn>,
 ) -> Wn {
     Wn::Unit {
-        unit: VirtualNode::Element(VElement {
-            tag: tag.clone(),
+        unit: Unit::Element {
+            tag: &tag,
             attrs: attrs.clone(),
-            events: Events(events.clone()),
-            children: vec![],
-        }),
-        children: (children)(),
+            events: events.clone(),
+        },
+        children: children.clone(),
     }
 }
 
@@ -153,22 +162,22 @@ impl<T: Default + Send + Sync + 'static> WidgetParam<WebBackend> for Store<'stat
 
 pub fn textw(text: &String) -> Wn {
     Wn::Unit {
-        unit: VirtualNode::Text(VText { text: text.clone() }),
-        children: Default::default(),
+        unit: Unit::Text(text.clone()),
+        children: Rc::new(Wn::None),
     }
 }
 
-pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<dyn Fn() -> Wng + 'static>) -> Wn {
+pub fn buttonw(f: &Rc<dyn Fn(&mut Ctx) + 'static>, children: &Rc<Wn>) -> Wn {
     let f = f.clone();
     htmlw.w((
         "button".into(),
         Default::default(),
         {
-            let mut map: HashMap<String, DynClosure> = Default::default();
+            let mut map: HashMap<&'static str, DynClosure> = Default::default();
             let closure = Closure::wrap(Box::new(move || {
                 access_ctx(&*f);
             }) as Box<dyn Fn()>);
-            map.insert("onclick".to_owned(), Rc::new(closure));
+            map.insert("onclick", Rc::new(closure));
             map
         },
         children.clone(),
@@ -180,12 +189,12 @@ pub fn textboxw(store: &StoreId<String>) -> Wn {
     htmlw.w((
         "input".into(),
         {
-            let mut map: HashMap<String, String> = Default::default();
-            map.insert("type".into(), "text".into());
+            let mut map: HashMap<&'static str, Cow<'static, str>> = Default::default();
+            map.insert("type", "text".into());
             map
         },
         {
-            let mut map: HashMap<String, DynClosure> = Default::default();
+            let mut map: HashMap<&'static str, DynClosure> = Default::default();
             let closure = Closure::wrap(Box::new(move |e: Event| {
                 access_ctx(|ctx| {
                     let new_value: String =
@@ -193,10 +202,10 @@ pub fn textboxw(store: &StoreId<String>) -> Wn {
                     *store.access(ctx) = new_value;
                 })
             }) as Box<dyn Fn(Event)>);
-            map.insert("oninput".to_owned(), Rc::new(closure));
+            map.insert("oninput", Rc::new(closure));
             map
         },
-        Rc::new(|| Default::default()),
+        Rc::new(Wn::None),
     ))
 }
 
@@ -259,7 +268,7 @@ pub fn enter_runtime(root: Wn) {
 
 fn direct_render(app: &UiApp) -> VirtualNode {
     fn extender(node: RenderNode<WebBackend>) -> VirtualNode {
-        let mut cloned: VirtualNode = clone_unit(node.unit);
+        let mut cloned = VirtualNode::from(node.unit);
         if let VirtualNode::Element(e) = &mut cloned {
             e.children.extend(node.iter_children().map(extender));
         }
@@ -270,16 +279,24 @@ fn direct_render(app: &UiApp) -> VirtualNode {
     VirtualNode::Element(root)
 }
 
-pub fn clone_unit(this: &VirtualNode) -> VirtualNode {
-    match this {
-        VirtualNode::Element(e) => VirtualNode::Element(VElement {
-            tag: e.tag.clone(),
-            attrs: e.attrs.clone(),
-            events: Events(e.events.0.clone()),
-            children: e.children.iter().map(clone_unit).collect(),
-        }),
-        VirtualNode::Text(t) => VirtualNode::Text(VText {
-            text: t.text.clone(),
-        }),
+impl From<&Unit> for VirtualNode {
+    fn from(u: &Unit) -> Self {
+        match u {
+            Unit::Element { tag, attrs, events } => VirtualNode::Element(VElement {
+                tag: (*tag).to_owned(),
+                attrs: attrs
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone().into_owned()))
+                    .collect(),
+                events: Events(
+                    events
+                        .iter()
+                        .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                        .collect(),
+                ),
+                children: vec![],
+            }),
+            Unit::Text(text) => VirtualNode::Text(VText { text: text.clone() }),
+        }
     }
 }

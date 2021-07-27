@@ -6,6 +6,7 @@ use std::{
     any::{Any, TypeId},
     cell::RefCell,
     collections::HashMap,
+    rc::Rc,
 };
 
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -48,12 +49,12 @@ impl<B: UiBackend> Application<B> {
 }
 
 pub struct RenderNode<'a, B: UiBackend> {
-    children: &'a MountedWidgetNodeGroup<B>,
+    children: &'a MountedWidgetNode<B>,
     pub unit: &'a B::Unit,
 }
 
 impl<'a, B: UiBackend> RenderNode<'a, B> {
-    pub fn iter_children(&self) -> GroupIterator<'a, B> {
+    pub fn iter_children(&self) -> impl Iterator<Item = RenderNode<'_, B>> + '_ {
         self.children.render()
     }
 }
@@ -67,7 +68,7 @@ pub trait WidgetFunc<P: 'static, B: UiBackend, Params>: 'static {
     fn init(&self, ctx: &mut Context<B>) -> Box<dyn Any>;
     fn deinit(&self, ctx: &mut Context<B>, init_data: Box<dyn Any>);
     fn needs_recalc(&self, ctx: &Context<B>, init_data: &dyn Any) -> bool;
-    fn as_dynamic(&self) -> Box<dyn DynWidgetFunc<B>>;
+    fn as_dynamic(&self) -> Rc<dyn DynWidgetFunc<B>>;
     fn fn_type_id(&self) -> TypeId;
     fn w(self, props: P) -> WidgetNode<B>
     where
@@ -75,7 +76,7 @@ pub trait WidgetFunc<P: 'static, B: UiBackend, Params>: 'static {
     {
         WidgetNode::Component(WidgetComponent {
             func: self.as_dynamic(),
-            props: Box::new(props),
+            props: Rc::new(props),
         })
     }
 }
@@ -85,7 +86,6 @@ pub trait DynWidgetFunc<B: UiBackend>: 'static {
     fn needs_recalc(&self, ctx: &Context<B>, init_data: &dyn Any) -> bool;
     fn init(&self, ctx: &mut Context<B>) -> Box<dyn Any>;
     fn deinit(&self, ctx: &mut Context<B>, init_data: Box<dyn Any>);
-    fn dyn_clone(&self) -> Box<dyn DynWidgetFunc<B>>;
     fn fn_type_id(&self) -> TypeId;
 }
 
@@ -105,10 +105,6 @@ impl<P: 'static, B: UiBackend, Params: 'static> DynWidgetFunc<B>
         (**self).needs_recalc(ctx, init_data)
     }
 
-    fn dyn_clone(&self) -> Box<dyn DynWidgetFunc<B>> {
-        (**self).as_dynamic()
-    }
-
     fn fn_type_id(&self) -> TypeId {
         (**self).fn_type_id()
     }
@@ -123,12 +119,21 @@ impl<P: 'static, B: UiBackend, Params: 'static> DynWidgetFunc<B>
 }
 
 pub struct WidgetComponent<B: UiBackend> {
-    func: Box<dyn DynWidgetFunc<B>>,
-    props: Box<dyn Any>,
+    func: Rc<dyn DynWidgetFunc<B>>,
+    props: Rc<dyn Any>,
+}
+
+impl<B: UiBackend> Clone for WidgetComponent<B> {
+    fn clone(&self) -> Self {
+        Self {
+            func: self.func.clone(),
+            props: self.props.clone(),
+        }
+    }
 }
 
 impl<B: UiBackend> WidgetNode<B> {
-    fn mount(self, ctx: &mut Context<B>) -> MountedWidgetNode<B> {
+    fn mount(&self, ctx: &mut Context<B>) -> MountedWidgetNode<B> {
         match self {
             WidgetNode::None => MountedWidgetNode::None,
             WidgetNode::Component(c) => {
@@ -136,8 +141,8 @@ impl<B: UiBackend> WidgetNode<B> {
                 MountedWidgetNode::Component(mw)
             }
             WidgetNode::Unit { children, unit } => MountedWidgetNode::Unit {
-                unit,
-                children: children.mount(ctx),
+                unit: unit.clone(),
+                children: Box::new(children.mount(ctx)),
             },
             WidgetNode::Group(group) => MountedWidgetNode::Group(group.mount(ctx)),
         }
@@ -145,7 +150,7 @@ impl<B: UiBackend> WidgetNode<B> {
 }
 
 impl<B: UiBackend> WidgetComponent<B> {
-    fn mount(self, ctx: &mut Context<B>) -> MountedWidgetComponent<B> {
+    fn mount(&self, ctx: &mut Context<B>) -> MountedWidgetComponent<B> {
         let mut init_data = self.func.init(ctx);
 
         let result = self
@@ -154,7 +159,7 @@ impl<B: UiBackend> WidgetComponent<B> {
             .mount(ctx);
 
         MountedWidgetComponent {
-            template: self,
+            template: self.clone(),
             init_data,
             result: Box::new(result),
         }
@@ -166,15 +171,39 @@ pub enum WidgetNode<B: UiBackend> {
     Component(WidgetComponent<B>),
     Unit {
         unit: B::Unit,
-        children: WidgetNodeGroup<B>,
+        children: Rc<WidgetNode<B>>,
     },
     Group(WidgetNodeGroup<B>),
+}
+
+impl<B: UiBackend> Clone for WidgetNode<B> {
+    fn clone(&self) -> Self {
+        match self {
+            WidgetNode::None => WidgetNode::None,
+            WidgetNode::Component(c) => WidgetNode::Component(c.clone()),
+            WidgetNode::Unit { unit, children } => WidgetNode::Unit {
+                unit: unit.clone(),
+                children: Rc::clone(children),
+            },
+            WidgetNode::Group(g) => WidgetNode::Group(g.clone()),
+        }
+    }
 }
 
 pub struct WidgetNodeGroup<B: UiBackend> {
     render_order: Vec<IntOrString>,
     ordered: Vec<WidgetNode<B>>,
     named: HashMap<String, WidgetNode<B>>,
+}
+
+impl<B: UiBackend> Clone for WidgetNodeGroup<B> {
+    fn clone(&self) -> Self {
+        Self {
+            render_order: self.render_order.clone(),
+            ordered: self.ordered.clone(),
+            named: self.named.clone(),
+        }
+    }
 }
 
 impl<B: UiBackend> Default for WidgetNodeGroup<B> {
@@ -216,12 +245,12 @@ impl<B: UiBackend> MountedWidgetNodeGroup<B> {
             .for_each(|node| node.unmount(ctx));
     }
 
-    fn diff(&mut self, new: WidgetNodeGroup<B>, ctx: &mut Context<B>) {
+    fn diff(&mut self, new: &WidgetNodeGroup<B>, ctx: &mut Context<B>) {
         let WidgetNodeGroup {
             named: mut new_named,
             ordered: new_ordered,
             render_order: new_render_order,
-        } = new;
+        } = new.clone();
         self.render_order = new_render_order;
         if new_ordered.len() < self.ordered.len() {
             self.ordered
@@ -232,14 +261,14 @@ impl<B: UiBackend> MountedWidgetNodeGroup<B> {
         self.ordered
             .iter_mut()
             .zip(new_ordered)
-            .for_each(|(old, new)| old.diff(new, ctx));
+            .for_each(|(old, new)| old.diff(&new, ctx));
 
         let ctx = RefCell::new(ctx);
         self.named
             .drain_filter(|name, old| {
                 new_named
                     .remove(name)
-                    .map(|new| old.diff(new, *ctx.borrow_mut()))
+                    .map(|new| old.diff(&new, *ctx.borrow_mut()))
                     .is_none()
             })
             .for_each(|(_, w)| w.unmount(*ctx.borrow_mut()));
@@ -282,16 +311,19 @@ impl<B: UiBackend> WidgetNodeGroup<B> {
         self.render_order.push(IntOrString::String(name));
     }
 
-    fn mount(self, ctx: &mut Context<B>) -> MountedWidgetNodeGroup<B> {
+    fn mount(&self, ctx: &mut Context<B>) -> MountedWidgetNodeGroup<B> {
         let Self {
             named,
             ordered,
             render_order,
         } = self;
         MountedWidgetNodeGroup {
-            named: named.into_iter().map(|(n, w)| (n, w.mount(ctx))).collect(),
+            named: named
+                .into_iter()
+                .map(|(n, w)| (n.clone(), w.mount(ctx)))
+                .collect(),
             ordered: ordered.into_iter().map(|w| w.mount(ctx)).collect(),
-            render_order,
+            render_order: render_order.clone(),
         }
     }
 }
@@ -301,13 +333,13 @@ enum MountedWidgetNode<B: UiBackend> {
     Component(MountedWidgetComponent<B>),
     Unit {
         unit: B::Unit,
-        children: MountedWidgetNodeGroup<B>,
+        children: Box<MountedWidgetNode<B>>,
     },
     Group(MountedWidgetNodeGroup<B>),
 }
 
 impl<B: UiBackend> MountedWidgetNode<B> {
-    fn diff(&mut self, new: WidgetNode<B>, ctx: &mut Context<B>) {
+    fn diff(&mut self, new: &WidgetNode<B>, ctx: &mut Context<B>) {
         match (self, new) {
             (MountedWidgetNode::None, WidgetNode::None) => {}
             (MountedWidgetNode::Component(c), WidgetNode::Component(new)) => c.diff(new, ctx),
@@ -318,8 +350,8 @@ impl<B: UiBackend> MountedWidgetNode<B> {
                     children: new_children,
                 },
             ) => {
-                *unit = new_unit;
-                children.diff(new_children, ctx);
+                *unit = new_unit.clone();
+                children.diff(&new_children, ctx);
             }
             (MountedWidgetNode::Group(old), WidgetNode::Group(new)) => old.diff(new, ctx),
             (this, new) => std::mem::replace(this, new.mount(ctx)).unmount(ctx),
@@ -402,12 +434,12 @@ impl<B: UiBackend> MountedWidgetComponent<B> {
             .func
             .call(ctx, &*self.template.props, &mut *self.init_data);
 
-        self.result.diff(new_result, ctx);
+        self.result.diff(&new_result, ctx);
     }
 
-    fn diff(&mut self, new: WidgetComponent<B>, ctx: &mut Context<B>) {
+    fn diff(&mut self, new: &WidgetComponent<B>, ctx: &mut Context<B>) {
         if self.template.func.fn_type_id() == new.func.fn_type_id() {
-            self.template.props = new.props;
+            self.template.props = Rc::clone(&new.props);
             self.process(ctx, true);
         } else {
             std::mem::replace(self, new.mount(ctx)).unmount(ctx)
@@ -421,7 +453,7 @@ impl<B: UiBackend> MountedWidgetComponent<B> {
 }
 
 pub trait UiBackend: 'static {
-    type Unit;
+    type Unit: Clone;
     type RunCtx;
 }
 
@@ -486,8 +518,8 @@ macro_rules! impl_functions {
                 $($params::deinit(ctx, $params);)*
             }
 
-            fn as_dynamic(&self) -> Box<dyn DynWidgetFunc<Backend>> {
-                Box::new(Box::new(*self) as Box<dyn WidgetFunc<($($props,)*), Backend, ($($params,)*)>>)
+            fn as_dynamic(&self) -> Rc<dyn DynWidgetFunc<Backend>> {
+                Rc::new(Box::new(*self) as Box<dyn WidgetFunc<($($props,)*), Backend, ($($params,)*)>>)
             }
 
             fn fn_type_id(&self) -> TypeId {

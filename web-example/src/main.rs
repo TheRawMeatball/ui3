@@ -33,15 +33,15 @@ fn app(store: Store<i32>, text: Store<String>) -> Wn {
     group.push(textw.w((format!("hello! number: {}", *store),)));
     group.push(buttonw.w((
         Rc::new(move |ctx| *id.access(ctx) += 1),
-        Rc::new(|| WidgetNodeGroup::single(textw.w(("Incecrement".into(),)))),
+        Rc::new(textw.w(("Incecrement".into(),))),
     )));
     group.push(buttonw.w((
         Rc::new(move |ctx| *id.access(ctx) -= 1),
-        Rc::new(|| WidgetNodeGroup::single(textw.w(("Decrement".into(),)))),
+        Rc::new(textw.w(("Decrement".into(),))),
     )));
     group.push(buttonw.w((
         Rc::new(move |ctx| text_id.access(ctx).clear()),
-        Rc::new(|| WidgetNodeGroup::single(textw.w(("Clear".into(),)))),
+        Rc::new(textw.w(("Clear text".into(),))),
     )));
     Wn::Group(group)
 }

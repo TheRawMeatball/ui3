@@ -32,15 +32,15 @@ fn app(store: Store<i32>, text: Store<String>) -> Wn {
     group.push(textboxw.w((text.id(),)));
     group.push(textw.w((format!("hello! number: {}", *store),)));
     group.push(buttonw.w((
-        Rc::new(move |ctx| *id.access(ctx) += 1),
+        Rc::new(move |ctx| *id.access_mut(ctx) += 1),
         Rc::new(textw.w(("Incecrement".into(),))),
     )));
     group.push(buttonw.w((
-        Rc::new(move |ctx| *id.access(ctx) -= 1),
+        Rc::new(move |ctx| *id.access_mut(ctx) -= 1),
         Rc::new(textw.w(("Decrement".into(),))),
     )));
     group.push(buttonw.w((
-        Rc::new(move |ctx| text_id.access(ctx).clear()),
+        Rc::new(move |ctx| text_id.access_mut(ctx).clear()),
         Rc::new(textw.w(("Clear text".into(),))),
     )));
     Wn::Group(group)

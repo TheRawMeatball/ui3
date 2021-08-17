@@ -51,6 +51,15 @@ impl<B: UiBackend> Application<B> {
         this.update(backend_data);
         this
     }
+
+    pub fn render(&self) -> Vec<RenderNode<B>> {
+        self.root.render()
+    }
+}
+
+pub struct RenderNode<'a, B: UiBackend> {
+    pub unit: &'a B::Unit,
+    pub children: Vec<RenderNode<'a, B>>,
 }
 
 #[doc(hidden)]
@@ -453,6 +462,25 @@ impl<B: UiBackend> MountedWidgetNode<B> {
             MountedWidgetNode::Group(group) => group.process(ctx),
         }
     }
+
+    fn render(&self) -> Vec<RenderNode<B>> {
+        match self {
+            MountedWidgetNode::None | MountedWidgetNode::Effect(_) => vec![],
+            MountedWidgetNode::Component(c) => c.result.render(),
+            MountedWidgetNode::Unit { unit, children } => vec![RenderNode {
+                unit,
+                children: children.render(),
+            }],
+            MountedWidgetNode::Group(g) => g
+                .render_order
+                .iter()
+                .flat_map(|ios| match ios {
+                    IntOrString::Int(i) => g.ordered[*i].render(),
+                    IntOrString::String(s) => g.named[s].render(),
+                })
+                .collect(),
+        }
+    }
 }
 
 struct MountedWidgetComponent<B: UiBackend> {
@@ -547,22 +575,31 @@ pub trait UiBackend: Sized + 'static {
 
     // Store support
     type StoreId: Copy + 'static;
-    type TrackingPtr<'a, T>: DerefMut<Target = T>;
+    type TrackingPtr<'a, T: Send + Sync + 'static>: DerefMut<Target = T>;
     type StoreInitData;
-    fn access_store_mut<'a, T>(
+    fn access_store_mut<'a, T: Send + Sync + 'static>(
         id: Self::StoreId,
         ctx: &'a mut Self::RunCtx<'_>,
     ) -> Self::TrackingPtr<'a, T>;
-    fn access_store<'a, T>(id: Self::StoreId, ctx: &'a Self::RunCtx<'_>) -> &'a T;
-    fn read_store_marked<'a, T>(
+    fn access_store<'a, T: Send + Sync + 'static>(
+        id: Self::StoreId,
+        ctx: &'a Self::RunCtx<'_>,
+    ) -> &'a T;
+    fn read_store_marked<'a, T: Send + Sync + 'static>(
         id: Self::StoreId,
         ctx: &'a Self::RunCtx<'_>,
         init_data: &mut Self::StoreInitData,
     ) -> &'a T;
-    fn init_store(ctx: &mut Self::RunCtx<'_>) -> Self::StoreInitData;
+    fn init_store<T: Send + Sync + 'static>(
+        ctx: &mut Self::RunCtx<'_>,
+        val: T,
+    ) -> Self::StoreInitData;
     fn deinit_store(data: Self::StoreInitData, ctx: &mut Self::RunCtx<'_>);
     fn id_from_store_init_data(data: &Self::StoreInitData) -> Self::StoreId;
-    fn check_store_needs_recalc(ctx: &Self::RunCtx<'_>, init_data: &Self::StoreInitData) -> bool;
+    fn check_store_needs_recalc<T: Send + Sync + 'static>(
+        ctx: &Self::RunCtx<'_>,
+        init_data: &Self::StoreInitData,
+    ) -> bool;
 }
 
 pub struct Store<'a, T, B: UiBackend> {
@@ -615,7 +652,7 @@ impl<B: UiBackend, T: Default + Send + Sync + 'static> WidgetParam<B> for Store<
     type Item<'ctx, 's> = Store<'ctx, T, B>;
 
     fn init(ctx: &mut B::RunCtx<'_>) -> B::StoreInitData {
-        B::init_store(ctx)
+        B::init_store(ctx, T::default())
     }
 
     fn deinit(ctx: &mut B::RunCtx<'_>, init_data: Self::InitData) {
@@ -634,7 +671,7 @@ impl<B: UiBackend, T: Default + Send + Sync + 'static> WidgetParam<B> for Store<
     }
 
     fn needs_recalc(ctx: &B::RunCtx<'_>, init_data: &Self::InitData) -> bool {
-        B::check_store_needs_recalc(ctx, init_data)
+        B::check_store_needs_recalc::<T>(ctx, init_data)
     }
 }
 
@@ -725,6 +762,5 @@ macro_rules! impl_functions {
 }
 
 impl_functions!(
-    _0, _1,
-    _2 //, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20
+    _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20
 );

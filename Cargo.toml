@@ -1,4 +1,5 @@
 [workspace]
 members = [
     "ui3-core",
+    "ui3-bevy",
 ]
